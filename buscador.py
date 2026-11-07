@@ -173,6 +173,10 @@ def mover_para_lixeira(caminho):
     shutil.move(caminho, os.path.join(lixeira, "files", nome))
 
 
+# muda sempre que o arquivo do programa muda (por exemplo, depois de um git pull)
+VERSAO = str(os.path.getmtime(os.path.abspath(__file__)))
+SEM_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # para falar com 127.0.0.1
+
 URL_CROSSREF = "https://api.crossref.org/works/"
 URL_ARXIV = "https://export.arxiv.org/api/query?id_list="
 
@@ -570,6 +574,9 @@ class Servidor(BaseHTTPRequestHandler):
                 subprocess.Popen(["xdg-open", caminho], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return self.responder(204, "text/plain", b"")
 
+        if url.path == "/versao":
+            return self.responder(200, "text/plain", VERSAO.encode())
+
         if url.path == "/sair":
             self.responder(200, "text/html; charset=utf-8", pagina_html("",
                 '<div class="cartao">Buscador fechado. Pode fechar esta aba.</div>').encode())
@@ -626,13 +633,31 @@ def main():
     endereco = f"http://127.0.0.1:{PORTA}"
     abrir_navegador = "--sem-navegador" not in sys.argv
 
-    with socket.socket() as teste:
-        ja_aberto = teste.connect_ex(("127.0.0.1", PORTA)) == 0
-    if ja_aberto:  # o buscador já está rodando: só mostra a página
-        print(f"O buscador já está aberto em {endereco}", flush=True)
-        if abrir_navegador:
-            webbrowser.open(endereco + "/reindexar")  # e confere a pasta de novo
-        return
+    def porta_ocupada():
+        with socket.socket() as teste:
+            return teste.connect_ex(("127.0.0.1", PORTA)) == 0
+
+    if porta_ocupada():
+        try:
+            versao_aberta = SEM_PROXY.open(endereco + "/versao", timeout=5).read().decode()
+        except Exception:
+            versao_aberta = ""  # versões antigas não sabem responder
+        if versao_aberta == VERSAO:  # já está rodando esta versão: só mostra a página
+            print(f"O buscador já está aberto em {endereco}", flush=True)
+            if abrir_navegador:
+                webbrowser.open(endereco + "/reindexar")  # e confere a pasta de novo
+            return
+        print("Fechando a versão antiga do buscador...", flush=True)
+        try:
+            SEM_PROXY.open(endereco + "/sair", timeout=5).read()
+        except Exception:
+            pass
+        for _ in range(50):
+            if not porta_ocupada():
+                break
+            time.sleep(0.2)
+        else:
+            sys.exit("A versão antiga não fechou. Rode no terminal:  pkill -f buscador.py")
 
     bd = conectar()
     Servidor.bd = bd

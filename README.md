@@ -59,4 +59,8 @@ Artigos novos ou apagados: com o buscador aberto, ele confere a pasta sozinho a 
 - PDFs escaneados (só imagem, sem texto) aparecem num aviso no topo da página, mas a busca não enxerga o conteúdo deles.
 - O autor vem dos dados internos do PDF e do cabeçalho da primeira página (o texto antes do "Abstract"). Por isso `autor:` pode também achar um nome que aparece no cabeçalho sem ser autor, por exemplo num agradecimento.
 
+## Atualizações
+
+Cada vez que você abre pelo ícone (ou pelo `abrir-buscador.sh`), o programa baixa a versão mais nova do GitHub. Se uma versão antiga ainda estiver aberta, ele a fecha e abre a nova. Sem internet, ele abre a versão que já está instalada.
+
 O índice fica em `~/.local/share/buscador-artigos/indice.db`. Pode apagar esse arquivo à vontade: o programa o recria.
