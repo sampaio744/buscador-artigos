@@ -11,6 +11,7 @@ Depois abra http://127.0.0.1:8765 (o navegador abre sozinho).
 import html
 import os
 import re
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -410,6 +411,12 @@ class Servidor(BaseHTTPRequestHandler):
                 subprocess.Popen(["xdg-open", caminho], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return self.responder(204, "text/plain", b"")
 
+        if url.path == "/sair":
+            self.responder(200, "text/html; charset=utf-8", pagina_html("",
+                '<div class="cartao">Buscador fechado. Pode fechar esta aba.</div>').encode())
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+
         if url.path == "/reindexar":
             if not estado["indexando"]:
                 threading.Thread(target=indexar, args=(self.bd, estado["pasta"]), daemon=True).start()
@@ -424,7 +431,7 @@ class Servidor(BaseHTTPRequestHandler):
         if estado["indexando"]:
             status += ' <a href="/">atualizar</a>'
         else:
-            status += ' · <a href="/reindexar">procurar PDFs novos</a>'
+            status += ' · <a href="/reindexar">procurar PDFs novos</a> · <a href="/sair">fechar o buscador</a>'
         corpo = f'<div class="status">{status}</div>'
 
         if consulta:
@@ -457,6 +464,16 @@ def main():
     if not os.path.isdir(pasta):
         sys.exit(f"Pasta não encontrada: {pasta}")
     estado["pasta"] = pasta
+    endereco = f"http://127.0.0.1:{PORTA}"
+    abrir_navegador = "--sem-navegador" not in sys.argv
+
+    with socket.socket() as teste:
+        ja_aberto = teste.connect_ex(("127.0.0.1", PORTA)) == 0
+    if ja_aberto:  # o buscador já está rodando: só mostra a página
+        print(f"O buscador já está aberto em {endereco}", flush=True)
+        if abrir_navegador:
+            webbrowser.open(endereco)
+        return
 
     bd = conectar()
     Servidor.bd = bd
@@ -464,14 +481,14 @@ def main():
     indexar(bd, pasta)
 
     servidor = ThreadingHTTPServer(("127.0.0.1", PORTA), Servidor)
-    endereco = f"http://127.0.0.1:{PORTA}"
     print(f"\nPronto! Abra {endereco} no navegador. (Ctrl+C para sair)", flush=True)
-    if "--sem-navegador" not in sys.argv:
+    if abrir_navegador:
         threading.Timer(0.5, webbrowser.open, args=(endereco,)).start()
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
-        print("\nAté logo!")
+        pass
+    print("\nAté logo!")
 
 
 if __name__ == "__main__":

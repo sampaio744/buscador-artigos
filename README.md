@@ -16,6 +16,16 @@ pip install --user pymupdf
 
 O navegador abre em http://127.0.0.1:8765. Na primeira vez o programa lê todos os PDFs, o que leva alguns segundos. Nas vezes seguintes ele só lê os arquivos novos ou alterados. Para sair, aperte Ctrl+C no terminal.
 
+### Ícone na área de trabalho
+
+Para abrir com dois cliques, sem terminal, copie o ícone para a área de trabalho (uma vez só):
+
+```bash
+cp ~/buscador-artigos/buscador_artigos.sh "$(xdg-user-dir DESKTOP)/"
+```
+
+Dê dois cliques nele e a página abre no navegador. Para fechar, clique em "fechar o buscador" no topo da página. Se o buscador já estiver aberto, o ícone só abre a página de novo.
+
 Para usar outra pasta:
 
 ```bash
