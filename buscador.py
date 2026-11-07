@@ -11,6 +11,8 @@ Depois abra http://127.0.0.1:8765 (o navegador abre sozinho).
 import html
 import os
 import re
+import secrets
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -48,6 +50,7 @@ TITULOS_RUINS = re.compile(
 
 estado = {"indexando": False, "mensagem": "", "pasta": ""}
 trava_bd = threading.Lock()
+CHAVE = secrets.token_urlsafe(16)  # só formulários desta página podem apagar arquivos
 trava_indexar = threading.Lock()  # evita duas leituras da pasta ao mesmo tempo
 INTERVALO_VERIFICACAO = 60  # segundos entre as conferências automáticas da pasta
 
@@ -142,6 +145,29 @@ def extrair(caminho):
         "cabecalho": cabecalho,
         "sem_texto": int(sum(len(p) for p in paginas) < 20 * max(len(paginas), 1)),
     }
+
+
+def mover_para_lixeira(caminho):
+    """Manda o arquivo para a Lixeira do sistema (dá para recuperar depois)."""
+    try:
+        if subprocess.run(["gio", "trash", caminho], capture_output=True, timeout=30).returncode == 0:
+            return
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    # sem o gio: segue o padrão de lixeira do Linux (freedesktop.org)
+    lixeira = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "Trash")
+    os.makedirs(os.path.join(lixeira, "files"), exist_ok=True)
+    os.makedirs(os.path.join(lixeira, "info"), exist_ok=True)
+    base, ext = os.path.splitext(os.path.basename(caminho))
+    nome, n = base + ext, 1
+    while os.path.exists(os.path.join(lixeira, "files", nome)) or os.path.exists(
+            os.path.join(lixeira, "info", nome + ".trashinfo")):
+        n += 1
+        nome = f"{base}.{n}{ext}"
+    with open(os.path.join(lixeira, "info", nome + ".trashinfo"), "w") as f:
+        f.write("[Trash Info]\nPath=" + urllib.parse.quote(os.path.abspath(caminho))
+                + "\nDeletionDate=" + time.strftime("%Y-%m-%dT%H:%M:%S") + "\n")
+    shutil.move(caminho, os.path.join(lixeira, "files", nome))
 
 
 def remover(bd, doc_id):
@@ -323,6 +349,7 @@ ESTILO = """
 body { margin:0; background:var(--fundo); color:var(--texto);
        font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width:900px; margin:0 auto; padding:24px 16px 64px; }
+a { color:var(--destaque); }
 h1 { font-size:22px; margin:0 0 16px; }
 h1 a { color:inherit; text-decoration:none; }
 form { display:flex; gap:8px; }
@@ -335,7 +362,13 @@ button { font-size:16px; padding:10px 18px; border:0; border-radius:10px;
 .status { color:var(--suave); font-size:14px; margin-bottom:16px; }
 .cartao { background:var(--cartao); border:1px solid var(--borda); border-radius:12px;
           padding:14px 16px; margin-bottom:12px; }
-.cartao h2 { font-size:17px; margin:0 0 4px; }
+.cartao { position:relative; }
+.cartao h2 { font-size:17px; margin:0 0 4px; padding-right:120px; }
+.lixeira { position:absolute; top:12px; right:12px; margin:0; }
+.lixeira button { font-size:13px; padding:5px 10px; background:transparent; color:var(--suave);
+                  border:1px solid var(--borda); border-radius:8px; }
+.lixeira button:hover { color:#fff; background:#c0392b; border-color:#c0392b; }
+.aviso { border-color:#c0392b; }
 .cartao h2 a { color:var(--destaque); text-decoration:none; }
 .cartao h2 a:hover { text-decoration:underline; }
 .meta { color:var(--suave); font-size:13px; word-break:break-all; }
@@ -377,7 +410,14 @@ def cartao(doc, trechos, consulta):
     html_trechos = "".join(
         f'<p class="trecho"><a href="{link(p)}" target="_blank">pág. {p}</a>{t}</p>' for p, t in trechos
     )
+    voltar = "/?q=" + urllib.parse.quote(consulta) if consulta else "/"
     return f"""<div class="cartao">
+<form class="lixeira" method="post" action="/remover/{doc_id}"
+      onsubmit="return confirm('Mover este artigo para a Lixeira?\\n\\nEle sai da pasta e da busca. Dá para recuperar pela Lixeira do sistema.')">
+  <input type="hidden" name="chave" value="{CHAVE}">
+  <input type="hidden" name="voltar" value="{html.escape(voltar)}">
+  <button title="Mover o arquivo para a Lixeira">🗑 remover</button>
+</form>
 <h2><a href="{link(pagina1)}" target="_blank">{html.escape(titulo)}</a></h2>
 <div class="meta">{meta}</div>
 <div class="meta">{html.escape(os.path.relpath(caminho, estado['pasta']))}</div>
@@ -403,6 +443,30 @@ class Servidor(BaseHTTPRequestHandler):
         self.send_response(303)
         self.send_header("Location", destino)
         self.end_headers()
+
+    def do_POST(self):
+        m = re.fullmatch(r"/remover/(\d+)", urllib.parse.urlparse(self.path).path)
+        tamanho = int(self.headers.get("Content-Length") or 0)
+        dados = urllib.parse.parse_qs(self.rfile.read(min(tamanho, 10000)).decode())
+        if not m or (dados.get("chave") or [""])[0] != CHAVE:
+            return self.responder(403, "text/plain; charset=utf-8", "Pedido recusado".encode())
+        doc_id = int(m.group(1))
+        caminho = self.caminho_doc(doc_id)
+        if caminho:
+            try:
+                if os.path.exists(caminho):
+                    mover_para_lixeira(caminho)
+            except Exception as erro:
+                corpo = (f'<div class="cartao aviso">Não consegui mover para a Lixeira: '
+                         f'{html.escape(str(erro))}<br>{html.escape(caminho)}</div>')
+                return self.responder(500, "text/html; charset=utf-8", pagina_html("", corpo).encode())
+            with trava_bd:
+                remover(self.bd, doc_id)
+                self.bd.commit()
+                total = self.bd.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
+            estado["mensagem"] = f"Movido para a Lixeira: {os.path.basename(caminho)}. {total} artigos no índice."
+        voltar = (dados.get("voltar") or ["/"])[0]
+        self.redirecionar(voltar if voltar.startswith("/") and not voltar.startswith("//") else "/")
 
     def caminho_doc(self, doc_id):
         with trava_bd:
