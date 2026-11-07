@@ -1,0 +1,48 @@
+# Buscador de Artigos
+
+Programa para achar artigos em PDF pelo conteúdo ou pelo nome do autor, numa página no navegador. Tudo roda no seu computador. Nenhum arquivo vai para a internet.
+
+## Instalação (uma vez só)
+
+```bash
+pip install --user pymupdf
+```
+
+## Como usar
+
+```bash
+./abrir-buscador.sh
+```
+
+O navegador abre em http://127.0.0.1:8765. Na primeira vez o programa lê todos os PDFs, o que leva alguns segundos. Nas vezes seguintes ele só lê os arquivos novos ou alterados. Para sair, aperte Ctrl+C no terminal.
+
+Para usar outra pasta:
+
+```bash
+python3 buscador.py "/caminho/da/pasta"
+```
+
+## Como buscar
+
+| Você digita | O que acha |
+|---|---|
+| `decoherence` | artigos com essa palavra em qualquer página |
+| `entanglement entropy` | artigos com as duas palavras |
+| `"phase transition"` | a frase exata |
+| `autor:Zurek` | artigos desse autor |
+| `autor:"Stephen Hawking"` | nome completo |
+| `"quantum Hall" autor:Laughlin` | as duas coisas juntas |
+| `topolog*` | topology, topological, topologia... |
+
+Acentos são ignorados (`schrodinger` acha "Schrödinger"). Cada resultado mostra trechos com a palavra destacada. Clicar no título ou em "pág. N" abre o PDF direto naquela página.
+
+Com a busca vazia, a página lista todos os artigos em ordem de título.
+
+PDF novo na pasta: clique em "procurar PDFs novos" no topo da página.
+
+## Limitações desta versão
+
+- PDFs escaneados (só imagem, sem texto) aparecem num aviso no topo da página, mas a busca não enxerga o conteúdo deles.
+- O autor vem dos dados internos do PDF e do cabeçalho da primeira página (o texto antes do "Abstract"). Por isso `autor:` pode também achar um nome que aparece no cabeçalho sem ser autor, por exemplo num agradecimento.
+
+O índice fica em `~/.local/share/buscador-artigos/indice.db`. Pode apagar esse arquivo à vontade: o programa o recria.
