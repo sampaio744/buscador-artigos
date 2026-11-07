@@ -48,7 +48,7 @@ Acentos são ignorados (`schrodinger` acha "Schrödinger"). Cada resultado mostr
 
 Com a busca vazia, a página lista todos os artigos em ordem de título.
 
-PDF novo na pasta: clique em "procurar PDFs novos" no topo da página.
+Artigos novos ou apagados: com o buscador aberto, ele confere a pasta sozinho a cada minuto. Para conferir na hora, clique em "procurar PDFs novos" no topo da página ou no ícone da área de trabalho. Pastas ocultas, como a lixeira do Insync (`.insync-trash`), são ignoradas.
 
 ## Limitações desta versão
 

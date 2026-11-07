@@ -48,6 +48,8 @@ TITULOS_RUINS = re.compile(
 
 estado = {"indexando": False, "mensagem": "", "pasta": ""}
 trava_bd = threading.Lock()
+trava_indexar = threading.Lock()  # evita duas leituras da pasta ao mesmo tempo
+INTERVALO_VERIFICACAO = 60  # segundos entre as conferências automáticas da pasta
 
 
 # ---------------------------------------------------------------- índice
@@ -149,10 +151,14 @@ def remover(bd, doc_id):
 
 
 def indexar(bd, pasta):
+    if not trava_indexar.acquire(blocking=False):
+        return  # já está lendo a pasta
     estado["indexando"] = True
     try:
         encontrados = {}
-        for raiz, _, arquivos in os.walk(pasta):
+        for raiz, subpastas, arquivos in os.walk(pasta):
+            # ignora pastas ocultas, como a lixeira do Insync (.insync-trash)
+            subpastas[:] = [d for d in subpastas if not d.startswith(".")]
             for nome in arquivos:
                 if nome.lower().endswith(".pdf"):
                     caminho = os.path.join(raiz, nome)
@@ -206,6 +212,17 @@ def indexar(bd, pasta):
         print(estado["mensagem"], flush=True)
     finally:
         estado["indexando"] = False
+        trava_indexar.release()
+
+
+def verificar_sempre(bd, pasta):
+    """Confere a pasta de tempos em tempos: acha PDFs novos e tira os apagados."""
+    while True:
+        time.sleep(INTERVALO_VERIFICACAO)
+        try:
+            indexar(bd, pasta)
+        except Exception as erro:
+            print(f"Erro ao conferir a pasta: {erro}", flush=True)
 
 
 # ---------------------------------------------------------------- busca
@@ -472,13 +489,14 @@ def main():
     if ja_aberto:  # o buscador já está rodando: só mostra a página
         print(f"O buscador já está aberto em {endereco}", flush=True)
         if abrir_navegador:
-            webbrowser.open(endereco)
+            webbrowser.open(endereco + "/reindexar")  # e confere a pasta de novo
         return
 
     bd = conectar()
     Servidor.bd = bd
     print(f"Pasta: {pasta}\nÍndice: {ARQUIVO_INDICE}", flush=True)
     indexar(bd, pasta)
+    threading.Thread(target=verificar_sempre, args=(bd, pasta), daemon=True).start()
 
     servidor = ThreadingHTTPServer(("127.0.0.1", PORTA), Servidor)
     print(f"\nPronto! Abra {endereco} no navegador. (Ctrl+C para sair)", flush=True)
