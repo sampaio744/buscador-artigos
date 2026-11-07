@@ -9,6 +9,7 @@ Depois abra http://127.0.0.1:8765 (o navegador abre sozinho).
 """
 
 import html
+import json
 import os
 import re
 import secrets
@@ -21,6 +22,8 @@ import threading
 import time
 import unicodedata
 import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -168,6 +171,47 @@ def mover_para_lixeira(caminho):
         f.write("[Trash Info]\nPath=" + urllib.parse.quote(os.path.abspath(caminho))
                 + "\nDeletionDate=" + time.strftime("%Y-%m-%dT%H:%M:%S") + "\n")
     shutil.move(caminho, os.path.join(lixeira, "files", nome))
+
+
+URL_CROSSREF = "https://api.crossref.org/works/"
+URL_ARXIV = "https://export.arxiv.org/api/query?id_list="
+
+
+def baixar(url):
+    pedido = urllib.request.Request(url, headers={"User-Agent": "BuscadorArtigos/1.0"})
+    with urllib.request.urlopen(pedido, timeout=15) as r:
+        return r.read()
+
+
+def titulo_verdadeiro(caminho, doi, arxiv):
+    """Procura o título correto: CrossRef (pelo DOI), arXiv, ou a maior letra da 1ª página.
+    Devolve (titulo, autores, ano, fonte)."""
+    if doi:
+        try:
+            msg = json.loads(baixar(URL_CROSSREF + urllib.parse.quote(doi)))["message"]
+            titulo = limpar(" ".join(msg.get("title") or []))
+            if titulo:
+                autores = ", ".join(
+                    " ".join(x for x in (a.get("given"), a.get("family")) if x) or a.get("name", "")
+                    for a in msg.get("author") or [])
+                partes = (msg.get("issued") or {}).get("date-parts") or [[None]]
+                ano = str(partes[0][0]) if partes and partes[0] and partes[0][0] else ""
+                return re.sub(r"<[^>]+>", "", titulo), limpar(autores), ano, "pelo CrossRef (via DOI)"
+        except Exception as erro:
+            print(f"CrossRef não respondeu para {doi}: {erro}", flush=True)
+    if arxiv:
+        try:
+            ns = {"a": "http://www.w3.org/2005/Atom"}
+            entrada = ET.fromstring(baixar(URL_ARXIV + urllib.parse.quote(arxiv))).find("a:entry", ns)
+            titulo = limpar(entrada.findtext("a:title", "", ns)) if entrada is not None else ""
+            if titulo and titulo.lower() != "error":
+                autores = ", ".join(limpar(a.findtext("a:name", "", ns)) for a in entrada.findall("a:author", ns))
+                return re.sub(r"\s+", " ", titulo), autores, "", "pelo arXiv"
+        except Exception as erro:
+            print(f"arXiv não respondeu para {arxiv}: {erro}", flush=True)
+    with fitz.open(caminho) as pdf:
+        titulo = titulo_pela_fonte(pdf[0]) if len(pdf) else ""
+    return titulo, "", "", "pela primeira página do PDF"
 
 
 def remover(bd, doc_id):
@@ -363,11 +407,16 @@ button { font-size:16px; padding:10px 18px; border:0; border-radius:10px;
 .cartao { background:var(--cartao); border:1px solid var(--borda); border-radius:12px;
           padding:14px 16px; margin-bottom:12px; }
 .cartao { position:relative; }
-.cartao h2 { font-size:17px; margin:0 0 4px; padding-right:120px; }
-.lixeira { position:absolute; top:12px; right:12px; margin:0; }
-.lixeira button { font-size:13px; padding:5px 10px; background:transparent; color:var(--suave);
-                  border:1px solid var(--borda); border-radius:8px; }
-.lixeira button:hover { color:#fff; background:#c0392b; border-color:#c0392b; }
+.cartao h2 { font-size:17px; margin:0 0 4px; padding-right:250px; }
+.botoes { position:absolute; top:12px; right:12px; display:flex; gap:6px; }
+.botoes form { margin:0; }
+.botoes button { font-size:13px; padding:5px 10px; background:transparent; color:var(--suave);
+                 border:1px solid var(--borda); border-radius:8px; }
+.botoes .corrigir button:hover { color:#fff; background:var(--destaque); border-color:var(--destaque); }
+.botoes .lixeira button:hover { color:#fff; background:#c0392b; border-color:#c0392b; }
+@media (max-width: 600px) {
+  .botoes { position:static; margin-bottom:8px; }
+  .cartao h2 { padding-right:0; } }
 .aviso { border-color:#c0392b; }
 .cartao h2 a { color:var(--destaque); text-decoration:none; }
 .cartao h2 a:hover { text-decoration:underline; }
@@ -411,13 +460,20 @@ def cartao(doc, trechos, consulta):
         f'<p class="trecho"><a href="{link(p)}" target="_blank">pág. {p}</a>{t}</p>' for p, t in trechos
     )
     voltar = "/?q=" + urllib.parse.quote(consulta) if consulta else "/"
-    return f"""<div class="cartao">
+    return f"""<div class="cartao" id="artigo-{doc_id}">
+<div class="botoes">
+<form class="corrigir" method="post" action="/titulo/{doc_id}">
+  <input type="hidden" name="chave" value="{CHAVE}">
+  <input type="hidden" name="voltar" value="{html.escape(voltar)}#artigo-{doc_id}">
+  <button title="Buscar o título verdadeiro do artigo (pelo DOI, arXiv ou primeira página)">🔤 corrigir título</button>
+</form>
 <form class="lixeira" method="post" action="/remover/{doc_id}"
       onsubmit="return confirm('Mover este artigo para a Lixeira?\\n\\nEle sai da pasta e da busca. Dá para recuperar pela Lixeira do sistema.')">
   <input type="hidden" name="chave" value="{CHAVE}">
   <input type="hidden" name="voltar" value="{html.escape(voltar)}">
   <button title="Mover o arquivo para a Lixeira">🗑 remover</button>
 </form>
+</div>
 <h2><a href="{link(pagina1)}" target="_blank">{html.escape(titulo)}</a></h2>
 <div class="meta">{meta}</div>
 <div class="meta">{html.escape(os.path.relpath(caminho, estado['pasta']))}</div>
@@ -445,14 +501,36 @@ class Servidor(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
-        m = re.fullmatch(r"/remover/(\d+)", urllib.parse.urlparse(self.path).path)
+        m = re.fullmatch(r"/(remover|titulo)/(\d+)", urllib.parse.urlparse(self.path).path)
         tamanho = int(self.headers.get("Content-Length") or 0)
         dados = urllib.parse.parse_qs(self.rfile.read(min(tamanho, 10000)).decode())
         if not m or (dados.get("chave") or [""])[0] != CHAVE:
             return self.responder(403, "text/plain; charset=utf-8", "Pedido recusado".encode())
-        doc_id = int(m.group(1))
+        acao, doc_id = m.group(1), int(m.group(2))
         caminho = self.caminho_doc(doc_id)
-        if caminho:
+        if caminho and acao == "titulo":
+            with trava_bd:
+                titulo_antigo, autores_antigos, ano_antigo, doi, arxiv = self.bd.execute(
+                    "SELECT titulo, autores, ano, doi, arxiv FROM docs WHERE id=?", (doc_id,)).fetchone()
+            try:
+                titulo, autores, ano, fonte = titulo_verdadeiro(caminho, doi, arxiv)
+            except Exception as e:
+                titulo, fonte = "", str(e)
+            if not titulo:
+                estado["mensagem"] = f"Não achei o título de {os.path.basename(caminho)} ({fonte})."
+            else:
+                # os autores só entram se o PDF não trazia nenhum; ajudam a busca por autor:
+                autores = autores_antigos or autores
+                ano = ano or ano_antigo
+                with trava_bd:
+                    self.bd.execute("UPDATE docs SET titulo=?, autores=?, ano=? WHERE id=?",
+                                    (titulo, autores, ano, doc_id))
+                    self.bd.execute("UPDATE docs_fts SET titulo=?, autores=? WHERE rowid=?",
+                                    (titulo, autores, doc_id))
+                    self.bd.commit()
+                estado["mensagem"] = (f"Título corrigido {fonte}: “{titulo}”" if titulo != titulo_antigo
+                                      else f"O título já estava certo (conferido {fonte}).")
+        elif caminho:
             try:
                 if os.path.exists(caminho):
                     mover_para_lixeira(caminho)
