@@ -46,7 +46,7 @@ python3 buscador.py "/caminho/da/pasta"
 
 Acentos são ignorados (`schrodinger` acha "Schrödinger"). Cada resultado mostra trechos com a palavra destacada. Clicar no título ou em "pág. N" abre o PDF direto naquela página.
 
-O botão **🗑 remover**, no canto de cada artigo, manda o PDF para a Lixeira do sistema (pede confirmação antes). Ele sai da pasta e da busca, e dá para recuperar pela Lixeira. Como a pasta é sincronizada pelo Insync, o arquivo também vai para a lixeira do Google Drive.
+O botão **🗑 remover**, no canto de cada artigo, manda o PDF para a Lixeira do sistema (pede confirmação antes). Ele sai da pasta e da busca, e dá para recuperar pela Lixeira. Como a pasta é sincronizada pelo Insync, o Insync normalmente também manda o arquivo para a lixeira do Google Drive.
 
 Com a busca vazia, a página lista todos os artigos em ordem de título.
 
